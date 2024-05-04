@@ -1,12 +1,8 @@
 #include "utils.h"
 
-#include <glad/glad.h>
 #include <math.h>
 
 #include <iostream>
-#include <vector>
-
-#include "tiny_obj_loader.h"
 
 static GLvoid Normalize(GLfloat v[3]) {
     GLfloat l;
@@ -134,4 +130,94 @@ void glPrintContextInfo(bool printExtension) {
             std::cout << "\t" << (const char*)glGetStringi(GL_EXTENSIONS, i) << std::endl;
         }
     }
+}
+
+std::string getBaseDir(const std::string& filepath) {
+    if (filepath.find_last_of("/\\") != std::string::npos)
+        return filepath.substr(0, filepath.find_last_of("/\\"));
+    return "";
+}
+
+void loadModel(std::string model_path, model& model) {
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    tinyobj::attrib_t attrib;
+    std::vector<GLfloat> vertices;
+    std::vector<GLfloat> colors;
+    std::vector<GLfloat> normals;
+
+    std::string err;
+    std::string warn;
+
+    std::string base_dir = getBaseDir(model_path);  // handle .mtl with relative path
+
+#ifdef _WIN32
+    base_dir += "\\";
+#else
+    base_dir += "/";
+#endif
+
+    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, model_path.c_str(), base_dir.c_str());
+
+    if (!warn.empty()) {
+        std::cout << warn << std::endl;
+    }
+
+    if (!err.empty()) {
+        std::cerr << err << std::endl;
+    }
+
+    if (!ret) {
+        exit(1);
+    }
+
+    std::cout << "Load Models Success ! Shapes size " << shapes.size() << " Material size " << materials.size() << std::endl;
+
+    std::vector<PhongMaterial> allMaterial;
+    for (int i = 0; i < materials.size(); i++) {
+        PhongMaterial material;
+        material.Ka = Vector3(materials[i].ambient[0], materials[i].ambient[1], materials[i].ambient[2]);
+        material.Kd = Vector3(materials[i].diffuse[0], materials[i].diffuse[1], materials[i].diffuse[2]);
+        material.Ks = Vector3(materials[i].specular[0], materials[i].specular[1], materials[i].specular[2]);
+        allMaterial.push_back(material);
+    }
+
+    model.shapes.clear();
+    for (int i = 0; i < shapes.size(); i++) {
+        vertices.clear();
+        colors.clear();
+        normals.clear();
+        normalization(&attrib, vertices, colors, normals, &shapes[i]);
+
+        Shape tmp_shape;
+        glGenVertexArrays(1, &tmp_shape.vao);
+        glBindVertexArray(tmp_shape.vao);
+
+        glGenBuffers(1, &tmp_shape.vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, tmp_shape.vbo);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(GL_FLOAT), &vertices.at(0), GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+        tmp_shape.vertex_count = vertices.size() / 3;
+
+        glGenBuffers(1, &tmp_shape.p_color);
+        glBindBuffer(GL_ARRAY_BUFFER, tmp_shape.p_color);
+        glBufferData(GL_ARRAY_BUFFER, colors.size() * sizeof(GL_FLOAT), &colors.at(0), GL_STATIC_DRAW);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+        glGenBuffers(1, &tmp_shape.p_normal);
+        glBindBuffer(GL_ARRAY_BUFFER, tmp_shape.p_normal);
+        glBufferData(GL_ARRAY_BUFFER, normals.size() * sizeof(GL_FLOAT), &normals.at(0), GL_STATIC_DRAW);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glEnableVertexAttribArray(2);
+
+        // not support per face material, use material of first face
+        if (allMaterial.size() > 0)
+            tmp_shape.material = allMaterial[shapes[i].mesh.material_ids[0]];
+        model.shapes.push_back(tmp_shape);
+    }
+    shapes.clear();
+    materials.clear();
 }

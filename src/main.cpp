@@ -30,67 +30,12 @@ bool mouse_pressed = false;
 int starting_press_x = -1;
 int starting_press_y = -1;
 
-enum TransMode {
-    GeoTranslation = 0,
-    GeoRotation = 1,
-    GeoScaling = 2,
-    LightEdit = 3,
-    ShininessEdit = 4,
-};
-
-struct Uniform {
-    GLint iLocMVP;
-};
 Uniform uniform;
-
 vector<string> filenames;  // .obj filename list
-
-struct PhongMaterial {
-    Vector3 Ka;
-    Vector3 Kd;
-    Vector3 Ks;
-};
-
-typedef struct
-{
-    GLuint vao;
-    GLuint vbo;
-    GLuint vboTex;
-    GLuint ebo;
-    GLuint p_color;
-    int vertex_count;
-    GLuint p_normal;
-    PhongMaterial material;
-    int indexCount;
-    GLuint m_texture;
-} Shape;
-
-struct model {
-    Vector3 position = Vector3(0, 0, 0);
-    Vector3 scale = Vector3(1, 1, 1);
-    Vector3 rotation = Vector3(0, 0, 0);  // Euler form
-
-    vector<Shape> shapes;
-};
 vector<model> models;
-
-struct camera {
-    Vector3 position;
-    Vector3 center;
-    Vector3 up_vector;
-};
 camera main_camera;
-
-struct project_setting {
-    GLfloat nearClip, farClip;
-    GLfloat fovy;
-    GLfloat aspect;
-    GLfloat left, right, top, bottom;
-};
 project_setting proj;
-
 TransMode cur_trans_mode = GeoTranslation;
-
 Matrix4 view_matrix;
 Matrix4 project_matrix;
 
@@ -112,7 +57,6 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
 void setShaders();
-void loadModels(string model_path);
 void initParameter();
 void setupRC();
 
@@ -333,97 +277,6 @@ void setShaders() {
     }
 }
 
-string getBaseDir(const string& filepath) {
-    if (filepath.find_last_of("/\\") != std::string::npos)
-        return filepath.substr(0, filepath.find_last_of("/\\"));
-    return "";
-}
-
-void loadModels(string model_path) {
-    vector<tinyobj::shape_t> shapes;
-    vector<tinyobj::material_t> materials;
-    tinyobj::attrib_t attrib;
-    vector<GLfloat> vertices;
-    vector<GLfloat> colors;
-    vector<GLfloat> normals;
-
-    string err;
-    string warn;
-
-    string base_dir = getBaseDir(model_path);  // handle .mtl with relative path
-
-#ifdef _WIN32
-    base_dir += "\\";
-#else
-    base_dir += "/";
-#endif
-
-    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, model_path.c_str(), base_dir.c_str());
-
-    if (!warn.empty()) {
-        cout << warn << std::endl;
-    }
-
-    if (!err.empty()) {
-        cerr << err << std::endl;
-    }
-
-    if (!ret) {
-        exit(1);
-    }
-
-    cout << "Load Models Success ! Shapes size " << shapes.size() << " Material size " << materials.size() << endl;
-    model tmp_model;
-
-    vector<PhongMaterial> allMaterial;
-    for (int i = 0; i < materials.size(); i++) {
-        PhongMaterial material;
-        material.Ka = Vector3(materials[i].ambient[0], materials[i].ambient[1], materials[i].ambient[2]);
-        material.Kd = Vector3(materials[i].diffuse[0], materials[i].diffuse[1], materials[i].diffuse[2]);
-        material.Ks = Vector3(materials[i].specular[0], materials[i].specular[1], materials[i].specular[2]);
-        allMaterial.push_back(material);
-    }
-
-    for (int i = 0; i < shapes.size(); i++) {
-        vertices.clear();
-        colors.clear();
-        normals.clear();
-        normalization(&attrib, vertices, colors, normals, &shapes[i]);
-
-        Shape tmp_shape;
-        glGenVertexArrays(1, &tmp_shape.vao);
-        glBindVertexArray(tmp_shape.vao);
-
-        glGenBuffers(1, &tmp_shape.vbo);
-        glBindBuffer(GL_ARRAY_BUFFER, tmp_shape.vbo);
-        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(GL_FLOAT), &vertices.at(0), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-        tmp_shape.vertex_count = vertices.size() / 3;
-
-        glGenBuffers(1, &tmp_shape.p_color);
-        glBindBuffer(GL_ARRAY_BUFFER, tmp_shape.p_color);
-        glBufferData(GL_ARRAY_BUFFER, colors.size() * sizeof(GL_FLOAT), &colors.at(0), GL_STATIC_DRAW);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
-
-        glGenBuffers(1, &tmp_shape.p_normal);
-        glBindBuffer(GL_ARRAY_BUFFER, tmp_shape.p_normal);
-        glBufferData(GL_ARRAY_BUFFER, normals.size() * sizeof(GL_FLOAT), &normals.at(0), GL_STATIC_DRAW);
-        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, 0);
-
-        glEnableVertexAttribArray(0);
-        glEnableVertexAttribArray(1);
-        glEnableVertexAttribArray(2);
-
-        // not support per face material, use material of first face
-        if (allMaterial.size() > 0)
-            tmp_shape.material = allMaterial[shapes[i].mesh.material_ids[0]];
-        tmp_model.shapes.push_back(tmp_shape);
-    }
-    shapes.clear();
-    materials.clear();
-    models.push_back(tmp_model);
-}
-
 void initParameter() {
     // [TODO] Setup some parameters if you need
     proj.left = -1;
@@ -452,7 +305,9 @@ void setupRC() {
     glClearColor(0.2, 0.2, 0.2, 1.0);
     vector<string> model_list{"../NormalModels/bunny5KN.obj", "../NormalModels/dragon10KN.obj", "../NormalModels/lucy25KN.obj", "../NormalModels/teapot4KN.obj", "../NormalModels/dolphinN.obj"};
     // [TODO] Load five model at here
-    loadModels(model_list[cur_idx]);
+    model tmp_model;
+    loadModel(model_list[cur_idx], tmp_model);
+    models.push_back(tmp_model);
 }
 
 int main(int argc, char** argv) {
