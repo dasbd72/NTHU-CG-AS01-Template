@@ -1,4 +1,4 @@
-# NTHU Computer Graphics Assignment 1
+# NTHU Computer Graphics Assignment 2
 
 ## Usage
 ```bash
