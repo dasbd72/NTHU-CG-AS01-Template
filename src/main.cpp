@@ -23,7 +23,7 @@ using namespace std;
 
 // Default window size
 const int WINDOW_WIDTH = 800;
-const int WINDOW_HEIGHT = 600;
+const int WINDOW_HEIGHT = 800;
 
 bool mouse_pressed = false;
 int starting_press_x = -1;
@@ -33,19 +33,43 @@ enum TransMode {
     GeoTranslation = 0,
     GeoRotation = 1,
     GeoScaling = 2,
-    ViewCenter = 3,
-    ViewEye = 4,
-    ViewUp = 5,
+    LightEdit = 3,
+    ShininessEdit = 4,
 };
 
-GLint iLocMVP;
+struct Uniform {
+    GLint iLocMVP;
+};
+Uniform uniform;
 
 vector<string> filenames;  // .obj filename list
+
+struct PhongMaterial {
+    Vector3 Ka;
+    Vector3 Kd;
+    Vector3 Ks;
+};
+
+typedef struct
+{
+    GLuint vao;
+    GLuint vbo;
+    GLuint vboTex;
+    GLuint ebo;
+    GLuint p_color;
+    int vertex_count;
+    GLuint p_normal;
+    PhongMaterial material;
+    int indexCount;
+    GLuint m_texture;
+} Shape;
 
 struct model {
     Vector3 position = Vector3(0, 0, 0);
     Vector3 scale = Vector3(1, 1, 1);
     Vector3 rotation = Vector3(0, 0, 0);  // Euler form
+
+    vector<Shape> shapes;
 };
 vector<model> models;
 
@@ -64,32 +88,11 @@ struct project_setting {
 };
 project_setting proj;
 
-enum ProjMode {
-    Orthogonal = 0,
-    Perspective = 1,
-};
-ProjMode cur_proj_mode = Orthogonal;
 TransMode cur_trans_mode = GeoTranslation;
 
 Matrix4 view_matrix;
 Matrix4 project_matrix;
 
-typedef struct
-{
-    GLuint vao;
-    GLuint vbo;
-    GLuint vboTex;
-    GLuint ebo;
-    GLuint p_color;
-    int vertex_count;
-    GLuint p_normal;
-    int materialId;
-    int indexCount;
-    GLuint m_texture;
-} Shape;
-Shape quad;
-Shape m_shpae;
-vector<Shape> m_shape_list;
 int cur_idx = 0;  // represent which model should be rendered now
 
 static GLvoid Normalize(GLfloat v[3]) {
@@ -181,16 +184,29 @@ void setViewingMatrix() {
     // view_matrix[...] = ...
 }
 
-// [TODO] compute orthogonal projection matrix
-void setOrthogonal() {
-    cur_proj_mode = Orthogonal;
+// [TODO] compute persepective projection matrix
+void setPerspective() {
+    // GLfloat f = ...
     // project_matrix [...] = ...
 }
 
-// [TODO] compute persepective projection matrix
-void setPerspective() {
-    cur_proj_mode = Perspective;
-    // project_matrix [...] = ...
+void setGLMatrix(GLfloat* glm, Matrix4& m) {
+    glm[0] = m[0];
+    glm[4] = m[1];
+    glm[8] = m[2];
+    glm[12] = m[3];
+    glm[1] = m[4];
+    glm[5] = m[5];
+    glm[9] = m[6];
+    glm[13] = m[7];
+    glm[2] = m[8];
+    glm[6] = m[9];
+    glm[10] = m[10];
+    glm[14] = m[11];
+    glm[3] = m[12];
+    glm[7] = m[13];
+    glm[11] = m[14];
+    glm[15] = m[15];
 }
 
 // Vertex buffers
@@ -200,24 +216,6 @@ GLuint VAO, VBO;
 void ChangeSize(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
     // [TODO] change your aspect ratio
-}
-
-void drawPlane() {
-    GLfloat vertices[18]{1.0, -0.9, -1.0,
-                         1.0, -0.9, 1.0,
-                         -1.0, -0.9, -1.0,
-                         1.0, -0.9, 1.0,
-                         -1.0, -0.9, 1.0,
-                         -1.0, -0.9, -1.0};
-
-    GLfloat colors[18]{0.0, 1.0, 0.0,
-                       0.0, 0.5, 0.8,
-                       0.0, 1.0, 0.0,
-                       0.0, 0.5, 0.8,
-                       0.0, 0.5, 0.8,
-                       0.0, 1.0, 0.0};
-
-    // [TODO] draw the plane with above vertices and color
 }
 
 // Render function for display rendering
@@ -232,30 +230,16 @@ void RenderScene(void) {
     GLfloat mvp[16];
 
     // [TODO] multiply all the matrix
-    // [TODO] row-major ---> column-major
-
-    mvp[0] = 1;
-    mvp[4] = 0;
-    mvp[8] = 0;
-    mvp[12] = 0;
-    mvp[1] = 0;
-    mvp[5] = 1;
-    mvp[9] = 0;
-    mvp[13] = 0;
-    mvp[2] = 0;
-    mvp[6] = 0;
-    mvp[10] = 1;
-    mvp[14] = 0;
-    mvp[3] = 0;
-    mvp[7] = 0;
-    mvp[11] = 0;
-    mvp[15] = 1;
+    // row-major ---> column-major
+    setGLMatrix(mvp, MVP);
 
     // use uniform to send mvp to vertex shader
-    glUniformMatrix4fv(iLocMVP, 1, GL_FALSE, mvp);
-    glBindVertexArray(m_shape_list[cur_idx].vao);
-    glDrawArrays(GL_TRIANGLES, 0, m_shape_list[cur_idx].vertex_count);
-    drawPlane();
+    glUniformMatrix4fv(uniform.iLocMVP, 1, GL_FALSE, mvp);
+    for (int i = 0; i < models[cur_idx].shapes.size(); i++) {
+        // set glViewport and draw twice ...
+        glBindVertexArray(models[cur_idx].shapes[i].vao);
+        glDrawArrays(GL_TRIANGLES, 0, models[cur_idx].shapes[i].vertex_count);
+    }
 }
 
 void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -333,7 +317,7 @@ void setShaders() {
     glDeleteShader(v);
     glDeleteShader(f);
 
-    iLocMVP = glGetUniformLocation(p, "mvp");
+    uniform.iLocMVP = glGetUniformLocation(p, "mvp");
 
     if (success)
         glUseProgram(p);
@@ -343,7 +327,7 @@ void setShaders() {
     }
 }
 
-void normalization(tinyobj::attrib_t* attrib, vector<GLfloat>& vertices, vector<GLfloat>& colors, tinyobj::shape_t* shape) {
+void normalization(tinyobj::attrib_t* attrib, vector<GLfloat>& vertices, vector<GLfloat>& colors, vector<GLfloat>& normals, tinyobj::shape_t* shape) {
     vector<float> xVector, yVector, zVector;
     float minX = 10000, maxX = -10000, minY = 10000, maxY = -10000, minZ = 10000, maxZ = -10000;
 
@@ -416,8 +400,6 @@ void normalization(tinyobj::attrib_t* attrib, vector<GLfloat>& vertices, vector<
         attrib->vertices.at(i) = attrib->vertices.at(i) / scale;
     }
     size_t index_offset = 0;
-    vertices.reserve(shape->mesh.num_face_vertices.size() * 3);
-    colors.reserve(shape->mesh.num_face_vertices.size() * 3);
     for (size_t f = 0; f < shape->mesh.num_face_vertices.size(); f++) {
         int fv = shape->mesh.num_face_vertices[f];
 
@@ -432,9 +414,21 @@ void normalization(tinyobj::attrib_t* attrib, vector<GLfloat>& vertices, vector<
             colors.push_back(attrib->colors[3 * idx.vertex_index + 0]);
             colors.push_back(attrib->colors[3 * idx.vertex_index + 1]);
             colors.push_back(attrib->colors[3 * idx.vertex_index + 2]);
+            // Optional: vertex normals
+            if (idx.normal_index >= 0) {
+                normals.push_back(attrib->normals[3 * idx.normal_index + 0]);
+                normals.push_back(attrib->normals[3 * idx.normal_index + 1]);
+                normals.push_back(attrib->normals[3 * idx.normal_index + 2]);
+            }
         }
         index_offset += fv;
     }
+}
+
+string GetBaseDir(const string& filepath) {
+    if (filepath.find_last_of("/\\") != std::string::npos)
+        return filepath.substr(0, filepath.find_last_of("/\\"));
+    return "";
 }
 
 void LoadModels(string model_path) {
@@ -443,11 +437,20 @@ void LoadModels(string model_path) {
     tinyobj::attrib_t attrib;
     vector<GLfloat> vertices;
     vector<GLfloat> colors;
+    vector<GLfloat> normals;
 
     string err;
     string warn;
 
-    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, model_path.c_str());
+    string base_dir = GetBaseDir(model_path);  // handle .mtl with relative path
+
+#ifdef _WIN32
+    base_dir += "\\";
+#else
+    base_dir += "/";
+#endif
+
+    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, model_path.c_str(), base_dir.c_str());
 
     if (!warn.empty()) {
         cout << warn << std::endl;
@@ -461,37 +464,61 @@ void LoadModels(string model_path) {
         exit(1);
     }
 
-    printf("Load Models Success ! Shapes size %d Maerial size %d\n", shapes.size(), materials.size());
-
-    normalization(&attrib, vertices, colors, &shapes[0]);
-
-    Shape tmp_shape;
-    glGenVertexArrays(1, &tmp_shape.vao);
-    glBindVertexArray(tmp_shape.vao);
-
-    glGenBuffers(1, &tmp_shape.vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, tmp_shape.vbo);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(GL_FLOAT), &vertices.at(0), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-    tmp_shape.vertex_count = vertices.size() / 3;
-
-    glGenBuffers(1, &tmp_shape.p_color);
-    glBindBuffer(GL_ARRAY_BUFFER, tmp_shape.p_color);
-    glBufferData(GL_ARRAY_BUFFER, colors.size() * sizeof(GL_FLOAT), &colors.at(0), GL_STATIC_DRAW);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
-
-    m_shape_list.push_back(tmp_shape);
+    printf("Load Models Success ! Shapes size %d Material size %d\n", int(shapes.size()), int(materials.size()));
     model tmp_model;
-    models.push_back(tmp_model);
 
-    glEnableVertexAttribArray(0);
-    glEnableVertexAttribArray(1);
+    vector<PhongMaterial> allMaterial;
+    for (int i = 0; i < materials.size(); i++) {
+        PhongMaterial material;
+        material.Ka = Vector3(materials[i].ambient[0], materials[i].ambient[1], materials[i].ambient[2]);
+        material.Kd = Vector3(materials[i].diffuse[0], materials[i].diffuse[1], materials[i].diffuse[2]);
+        material.Ks = Vector3(materials[i].specular[0], materials[i].specular[1], materials[i].specular[2]);
+        allMaterial.push_back(material);
+    }
 
+    for (int i = 0; i < shapes.size(); i++) {
+        vertices.clear();
+        colors.clear();
+        normals.clear();
+        normalization(&attrib, vertices, colors, normals, &shapes[i]);
+        // printf("Vertices size: %d", vertices.size() / 3);
+
+        Shape tmp_shape;
+        glGenVertexArrays(1, &tmp_shape.vao);
+        glBindVertexArray(tmp_shape.vao);
+
+        glGenBuffers(1, &tmp_shape.vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, tmp_shape.vbo);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(GL_FLOAT), &vertices.at(0), GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+        tmp_shape.vertex_count = vertices.size() / 3;
+
+        glGenBuffers(1, &tmp_shape.p_color);
+        glBindBuffer(GL_ARRAY_BUFFER, tmp_shape.p_color);
+        glBufferData(GL_ARRAY_BUFFER, colors.size() * sizeof(GL_FLOAT), &colors.at(0), GL_STATIC_DRAW);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+        glGenBuffers(1, &tmp_shape.p_normal);
+        glBindBuffer(GL_ARRAY_BUFFER, tmp_shape.p_normal);
+        glBufferData(GL_ARRAY_BUFFER, normals.size() * sizeof(GL_FLOAT), &normals.at(0), GL_STATIC_DRAW);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glEnableVertexAttribArray(2);
+
+        // not support per face material, use material of first face
+        if (allMaterial.size() > 0)
+            tmp_shape.material = allMaterial[shapes[i].mesh.material_ids[0]];
+        tmp_model.shapes.push_back(tmp_shape);
+    }
     shapes.clear();
     materials.clear();
+    models.push_back(tmp_model);
 }
 
 void initParameter() {
+    // [TODO] Setup some parameters if you need
     proj.left = -1;
     proj.right = 1;
     proj.top = 1;
@@ -516,7 +543,7 @@ void setupRC() {
 
     // OpenGL States and Values
     glClearColor(0.2, 0.2, 0.2, 1.0);
-    vector<string> model_list{"../ColorModels/bunny5KC.obj", "../ColorModels/dragon10KC.obj", "../ColorModels/lucy25KC.obj", "../ColorModels/teapot4KC.obj", "../ColorModels/dolphinC.obj"};
+    vector<string> model_list{"../NormalModels/bunny5KN.obj", "../NormalModels/dragon10KN.obj", "../NormalModels/lucy25KN.obj", "../NormalModels/teapot4KN.obj", "../NormalModels/dolphinN.obj"};
     // [TODO] Load five model at here
     LoadModels(model_list[cur_idx]);
 }
@@ -548,7 +575,7 @@ int main(int argc, char** argv) {
 #endif
 
     // create window
-    GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Student ID HW1", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Student ID HW2", NULL, NULL);
     if (window == NULL) {
         std::cout << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
